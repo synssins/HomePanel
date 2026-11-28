@@ -209,11 +209,7 @@
       const reg = HP.S.reg, dev = reg[e] && reg[e].dev;
       const picks = dev ? Object.keys(HP.S.states).filter(id => id.startsWith('select.') && reg[id] && reg[id].dev === dev && !reg[id].skip).sort() : [];
       const side = can.colour || can.fx || picks.length ? part(body, 'pr') : null, wheel = can.colour ? part(side, 'wheel', 'adj', MARK) : null;
-      // An effect that answers to sound carries a note, one made for a grid of lights a grid (WLED; see HP.fxmeta).
-      let marks = {}; if (can.fx) HP.fxmeta(e).then(m => { marks = m || {}; });
-      const NOTE = '<svg viewBox="0 0 24 24"><path d="M9 4v11.2a3.2 3.2 0 1 0 2 3V8h6V4z"/></svg>', GRID = '<svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>';
-      const fx = can.fx ? dropdown(side, () => [st(e).attributes.effect_list || [], st(e).attributes.effect], x => call({effect: x}),
-        x => marks[x] ? '<span class="fm">' + (marks[x].includes('s') ? NOTE : '') + (marks[x].includes('g') ? GRID : '') + '</span>' : '') : null;
+      const fx = can.fx ? dropdown(side, () => [st(e).attributes.effect_list || [], st(e).attributes.effect], x => call({effect: x})) : null;
       const sel = picks.map(id => [id, dropdown(side, () => [(st(id) || {attributes: {}}).attributes.options || [], (st(id) || {}).state], x => ctx.service('select', 'select_option', id, {option: x}))]);
       // A group Home Assistant knows the members of: each one under the controls, to open by itself.
       const mem = (Array.isArray(a0.entity_id) ? a0.entity_id : []).filter(st), chips = mem.length ? part(body.parentNode, 'pmem') : null;
@@ -350,9 +346,9 @@
       const mode = f & 65536 && (a.sound_mode_list || []).length ? dropdown(side, () => [attr(e, 'sound_mode_list') || [], attr(e, 'sound_mode')], x => call('select_sound_mode', {sound_mode: x})) : null;
       return () => {
         const s = st(e); if (!s) return 'Not found';
-        const x = s.attributes, pic = x.entity_picture ? (/^https?:/.test(x.entity_picture) ? x.entity_picture : HP.asset(x.entity_picture)) : '';
+        const x = s.attributes, pic = x.entity_picture || '';
         if (vol) vol();
-        if (art.dataset.pic !== pic) { art.dataset.pic = pic; art.hidden = !pic; art.style.backgroundImage = pic ? `url("${pic}")` : ''; }
+        if (art.dataset.pic !== pic) { art.dataset.pic = pic; art.hidden = !pic; art.style.backgroundImage = ''; picture(pic, url => { if (url && art.dataset.pic === pic) art.style.backgroundImage = cssUrl(url); }); }
         if (power) power.classList.toggle('lit', s.state !== 'off' && s.state !== 'standby');
         if (play) { const ic = U.icon(s.state === 'playing' ? 'pause' : 'play'); if (play.innerHTML !== ic) play.innerHTML = ic; }
         if (mute) mute.classList.toggle('lit', !!x.is_volume_muted);
@@ -459,19 +455,43 @@
   }
 
   /** A picture Home Assistant names: one of its own paths (fetched through the Workshop), or an address elsewhere. */
-  const picture = p => !p ? '' : /^https?:/.test(p) ? p : HP.asset(p);
+  /** A picture Home Assistant names, handed to use(url). An address elsewhere is used as it is. One of Home
+   *  Assistant's own paths needs leave to be fetched, whichever integration it belongs to: Home Assistant signs a
+   *  link for it (good for an hour, kept for most of that). Where it will not sign, the path is tried as it is. */
+  const signed = {};
+  function picture(p, use) {
+    if (!p || /^https?:/.test(p)) return use(p || '');
+    const had = signed[p], now = Date.now();
+    if (had && had.until > now) return use(had.url);
+    HP.ha.call({type: 'auth/sign_path', path: p, expires: 3600}).then(r => { signed[p] = {url: HP.asset(r.path), until: now + 3e6}; use(signed[p].url); }, () => use(HP.asset(p)));
+  }
+  const cssUrl = u => `url("${u.replace(/"/g, '%22')}")`;
   /** What a player can play, as Home Assistant lists it for that player: folders that open, and things that play.
    *  A folder that can also be played whole (an album, a playlist) carries a play button of its own. Playing closes it. */
   function browse(e, ctx, name) {
     HP.pop.open(name, (body, head) => {
       const back = part(head, 'rb', '1', FACE.back), trail = [];
       head.insertBefore(back, head.querySelector('.px')); body.parentNode.classList.add('wide'); body.className = 'pb bgrid';
+      // Search is Home Assistant's: the field shows only where Home Assistant says this folder can be searched, or
+      // that this player can search at all, and the looking is done by Home Assistant's own search for that player.
+      const bar = document.createElement('div'); bar.className = 'bsearch'; bar.hidden = true;
+      bar.innerHTML = '<input class="tin" data-r="1" placeholder="Search" autocomplete="off"><div class="mb" data-r="1">Search</div>';
+      body.parentNode.insertBefore(bar, body);
+      const find = () => { const q = bar.firstChild.value.trim(), at = trail[trail.length - 1]; if (!q || !at) return;
+        HP.ha.call(Object.assign({type: 'media_player/search_media', entity_id: e, search_query: q},
+          at.can_search && at.media_content_id ? {media_content_id: at.media_content_id, media_content_type: at.media_content_type, media_filter_classes: at.search_media_classes || undefined} : {}))
+          .then(r => { trail.push({title: q, children: (r && r.result) || [], found: true}); bar.firstChild.value = ''; show(); }, err => HP.toast(err.message)); };
+      bar.lastChild.onclick = find; bar.firstChild.onclick = () => bar.firstChild.focus();
+      bar.firstChild.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.stopPropagation(); find(); } });
       const show = () => {
         const kids = trail[trail.length - 1].children || [];
         back.hidden = trail.length < 2;
+        const at = trail[trail.length - 1];
+        bar.hidden = !!at.found || !(at.can_search || (trail.length === 1 && (attr(e, 'supported_features') || 0) & 4194304));
         body.innerHTML = kids.map((c, k) => `<div class="bi" data-r="1" data-n="${k}"><div class="bth">${c.can_expand ? FOLDER : U.icon('play')}</div><div class="bnm">${U.esc(c.title || '')}</div>`
           + (c.can_expand && c.can_play ? `<div class="rb bplay" data-r="1">${U.icon('play')}</div>` : '') + '</div>').join('');
-        kids.forEach((c, k) => { const pic = picture(c.thumbnail); if (pic) { const th = body.children[k].firstChild; th.style.backgroundImage = `url("${pic.replace(/"/g, '%22')}")`; th.innerHTML = ''; } });
+        const here = trail[trail.length - 1];
+        kids.forEach((c, k) => picture(c.thumbnail, pic => { const th = pic && trail[trail.length - 1] === here && body.children[k] && body.children[k].firstChild; if (th) { th.style.backgroundImage = cssUrl(pic); th.innerHTML = ''; } }));
         body.scrollTop = 0; HP.pop.update();
       };
       const open = c => { body.innerHTML = '';
@@ -758,10 +778,11 @@
       // the picture sits beside the words only on a tile wide enough to leave them room; otherwise it goes on top
       i.el.classList.toggle('tall', i.w < i.h * 1.8); i.el.classList.toggle('off', !U.avail(t.entity));
       if (!s) { U.set(i.p.n, name); U.set(i.p.l, U.stateLabel(t.entity)); return; }
-      const a = s.attributes, f = a.supported_features || 0, playing = s.state === 'playing', pic = picture(a.entity_picture), sig = f + '/' + playing;
+      const a = s.attributes, f = a.supported_features || 0, playing = s.state === 'playing', pic = a.entity_picture || '', sig = f + '/' + playing;
       U.set(i.p.n, a.media_title || name); U.set(i.p.l, a.media_title ? [a.media_artist, name].filter(Boolean).join(' \u00b7 ') : U.cap(s.state));
       i.el.classList.toggle('on', playing);
-      if (i.pic !== pic) { i.pic = pic; i.p.art.style.backgroundImage = pic ? `url("${pic.replace(/"/g, '%22')}")` : ''; i.p.art.innerHTML = pic ? '' : U.icon('play'); }
+      if (i.pic !== pic) { i.pic = pic; i.p.art.style.backgroundImage = ''; i.p.art.innerHTML = U.icon('play');
+        picture(pic, url => { if (url && i.pic === pic) { i.p.art.style.backgroundImage = cssUrl(url); i.p.art.innerHTML = ''; } }); }
       if (i.sig !== sig) { i.sig = sig; i.p.btn.innerHTML = (f & 16 ? `<div class="tap" data-b="prev">${PREV}</div>` : '') + (f & 16385 ? `<div class="tap" data-b="play">${U.icon(playing ? 'pause' : 'play')}</div>` : '')
         + (f & 32 ? `<div class="tap" data-b="next">${NEXT}</div>` : ''); }
     },

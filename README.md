@@ -29,7 +29,7 @@ shadow style.
 A light button follows the light. A light that only switches is toggled by a tap. Any other light opens a popup
 with the controls that Home Assistant reports for it: level, colour temperature, colour, effects. Setting a value
 on a light that is off switches it on at that value. A button design can show the colour and level of a lit light
-on the button. Effects of a WLED light that respond to sound or are made for a 2D matrix are marked in the list. Select entities on the same device as the light, such as WLED presets and playlists, are shown
+on the button. Select entities on the same device as the light, such as presets, are shown
 as lists in the popup.
 
 A light group whose members Home Assistant reports opens the same popup for the whole group and lists its
@@ -63,8 +63,9 @@ confirmation.
 of a to-do list with check-off and add, and the daily or hourly forecast of a weather entity.
 
 The **Media player** tile shows the picture and title of what is playing with previous, play or pause, and next.
-The picture opens the media browser of that player, as Home Assistant provides it: folders open, items play. The
-title opens the player's controls.
+The picture opens the media browser of that player, as Home Assistant provides it: folders open, items play. Search is shown where Home Assistant offers it for the player or the folder, and uses
+Home Assistant's search. Pictures are fetched through links signed by Home Assistant. The title opens the player's
+controls.
 
 The **Remote** tile opens a remote control for a `remote` entity: power, volume, channels, the four directions with
 OK, back, home, menu, play, sources and activities. Button commands are mapped for the Android TV Remote, Samsung
@@ -162,7 +163,6 @@ connect to the development instance.
 
 - Store tests: `python addon/tests/test_store.py`
 - Scene capture tests: `python addon/tests/test_scenes.py`
-- WLED effect mark tests: `python addon/tests/test_wled.py`
 - Overlay test page: `web/fx-demo.html?kind=walkers`
 - Popup and confirmation tests: `node tests/guard-test.js`. The test uses a development Workshop on port 8723,
   invented entities, and records service calls without sending them.

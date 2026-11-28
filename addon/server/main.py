@@ -25,7 +25,6 @@ from aiohttp import ClientSession, WSMsgType, web
 
 from .scenes import capture, lights_of
 from .store import Store
-from .wled import effect_marks
 
 log = logging.getLogger("daedalus")
 ROOT = Path(__file__).resolve().parents[1]
@@ -259,6 +258,40 @@ async def ha_media(request: web.Request):
     so no tablet key is asked for; the relay only adds the HA token HA wants for the API route."""
     url = HA_HTTP + request.path[len("/api"):]
     async with request.app["http"].get(url, params=request.query, headers={"Authorization": f"Bearer {HA_TOKEN}"}) as up:
+        resp = web.StreamResponse(status=up.status)
+        for h in ("Content-Type", "Cache-Control"):
+            if h in up.headers:
+                resp.headers[h] = up.headers[h]
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        await resp.prepare(request)
+        async for chunk in up.content.iter_chunked(64 * 1024):
+            await resp.write(chunk)
+        return resp
+
+
+async def find_core(app: web.Application):
+    """Where Home Assistant itself answers, for the links it signs. As an add-on the usual road to it goes through
+    the Supervisor, which lets everything through on the add-on's own token: a signature would mean nothing there.
+    So signed links go to Home Assistant directly, where it checks them itself."""
+    app["ha_direct"] = None if SUPERVISOR_TOKEN else HA_HTTP
+    if SUPERVISOR_TOKEN:
+        try:
+            async with app["http"].get("http://supervisor/core/info", headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}, timeout=10) as r:
+                d = (await r.json())["data"]
+            app["ha_direct"] = f"http{'s' if d.get('ssl') else ''}://{d['ip_address']}:{d['port']}/api"
+        except Exception as e:  # pictures that need a signed link stay blank; everything else works
+            log.warning("Home Assistant's own address not found, signed links are off: %r", e)
+
+
+async def ha_signed(request: web.Request):
+    """A picture Home Assistant has signed a link for: the cover of what a player plays, the picture of a folder in
+    its media browser, whichever integration it comes from. The panel asks Home Assistant for the link over its
+    own connection; the signature is Home Assistant's leave, checked by Home Assistant. The Workshop adds no leave
+    of its own here and passes on nothing that is not signed."""
+    base = request.app.get("ha_direct")
+    if "authSig" not in request.query or not base:
+        raise web.HTTPNotFound()
+    async with request.app["http"].get(base + request.path[len("/api"):], params=request.query, ssl=False) as up:
         resp = web.StreamResponse(status=up.status)
         for h in ("Content-Type", "Cache-Control"):
             if h in up.headers:
@@ -549,31 +582,6 @@ async def tablet_scenes(request: web.Request):
     return web.json_response(dict(await asyncio.gather(*(one(e, i) for e, i in ids.items()))))
 
 
-async def tablet_fxmeta(request: web.Request):
-    """Which of a light's effects answer to sound or are made for a grid, for the marks in a panel's effects list.
-    Only a WLED light has an answer. It is asked of the device itself, at the address Home Assistant has for that
-    device (never one the panel names), and kept for as long as the server runs."""
-    if not tablet_for(request):
-        raise web.HTTPUnauthorized()
-    eid, app = request.query.get("entity", ""), request.app
-    if eid not in app["fxmeta"]:
-        ents, devices = await ha_call(app, [{"type": "config/entity_registry/list"}, {"type": "config/device_registry/list"}])
-        e = next((x for x in ents if x["entity_id"] == eid), None) or {}
-        url = next((d.get("configuration_url") or "" for d in devices if d["id"] == e.get("device_id")), "") if e.get("platform") == "wled" else ""
-        marks = {}
-        if url.startswith("http://"):
-            try:
-                async with app["http"].get(url.rstrip("/") + "/json/effects", timeout=8) as a:
-                    names = await a.json(content_type=None)
-                async with app["http"].get(url.rstrip("/") + "/json/fxdata", timeout=8) as b:
-                    marks = effect_marks(names, await b.json(content_type=None))
-            except Exception as err:  # the strip is away: ask again the next time
-                log.warning("no effect marks from %s: %r", url, err)
-                return web.json_response({})
-        app["fxmeta"][eid] = marks
-    return web.json_response(app["fxmeta"][eid])
-
-
 async def tablet_llm(request: web.Request):
     """Assistant buttons set to a direct LLM send the heard text here. The server holds the address and key
     (Studio, Assistant settings); the tablet never sees them. Speaks the OpenAI chat-completions format,
@@ -672,7 +680,6 @@ def build_app() -> web.Application:
     app["engine"] = build_engine()
     app["wake_lock"] = asyncio.Lock()
     app["admin_sockets"] = set()
-    app["fxmeta"] = {}
 
     async def http_ctx(app):
         app["http"] = ClientSession()
@@ -680,7 +687,7 @@ def build_app() -> web.Application:
         await app["http"].close()
 
     app.cleanup_ctx.append(http_ctx)
-    app.on_startup.extend([seed, start_mdns])
+    app.on_startup.extend([seed, find_core, start_mdns])
     app.on_cleanup.append(stop_mdns)
 
     r = app.router
@@ -694,9 +701,9 @@ def build_app() -> web.Application:
     r.add_post("/api/llm", tablet_llm)
     r.add_post("/api/scene", tablet_scene)
     r.add_get("/api/scenes", tablet_scenes)
-    r.add_get("/api/fxmeta", tablet_fxmeta)
     for p in ("/api/camera_proxy/{t:.*}", "/api/camera_proxy_stream/{t:.*}", "/api/hls/{t:.*}", "/api/tts_proxy/{t:.*}", "/api/media_player_proxy/{t:.*}", "/api/brands/{t:.*}"):
         r.add_get(p, ha_media)
+    r.add_get("/api/{t:.*}", ha_signed)  # last of the /api paths: whatever else Home Assistant has signed a link for
     r.add_route("OPTIONS", "/api/{t:.*}", lambda request: web.Response())
 
     r.add_get("/admin/api/state", admin_state)

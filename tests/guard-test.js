@@ -204,12 +204,6 @@ const done = async code => { try { await api('DELETE', 'tablets/' + DEV); } catc
   const badge = await js(`(() => { const b = document.querySelector(${JSON.stringify(tile(0))} + ' .batt'); return b ? [b.textContent, b.hidden, b.classList.contains('low')] : null; })()`);
   ok('batteries: lowest first on their button, and a device\'s own on its button', same(bats, [['Fake Door', '15%', 'low'], ['Fake Window', '91%', ''], ['Fake Remote', 'OK', '']]) && same(badge, ['15%', false, true]), {bats, badge});
 
-  // ---- an effect that answers to sound or is made for a grid carries its mark
-  await ev(`HP.fxmeta = () => Promise.resolve({Candle: 's', Colorloop: 'sg'})`); await set('light.fake_full', 'on');
-  await tap(tile(4)); await tap('#pop .dd'); const fxMarks = await js(`[...document.querySelectorAll('#pop .dd.open .ddl div')].map(d => d.querySelectorAll('.fm svg').length)`);
-  await tap('#pop .dd'); await tap('#pop .px');
-  ok('light: effects for sound and for a grid are marked', same(fxMarks, [1, 2, 0]), fxMarks);
-
   // ---- showing: a value in its own words, a gauge against its range, a chart of what Home Assistant kept (made up here)
   await ev(`(() => { const real = HP.ha.call.bind(HP.ha), t = Date.now() / 1000; HP.ha.call = m => m.type === 'history/history_during_period' && /fake_/.test(m.entity_ids[0])
     ? Promise.resolve({[m.entity_ids[0]]: [{s: '20', lu: t - 7200}, {s: 'unavailable', lu: t - 5400}, {s: '24', lu: t - 3600}, {s: '21', lu: t - 60}]}) : real(m); })()`);
@@ -313,25 +307,32 @@ const done = async code => { try { await api('DELETE', 'tablets/' + DEV); } catc
     && same(samSrc, just('remote', 'send_command', 'remote.fake_sam', {command: 'KEY_SOURCE'})) && odd.buttons === 0 && odd.power, {samVol, samSrc, odd});
 
   // ---- a player's tile: its picture, what plays, its buttons; the picture opens what it can play (the library is made up here)
-  await ev(`(() => { const real = HP.ha.call.bind(HP.ha); HP.ha.call = m => m.type !== 'media_player/browse_media' ? real(m) : Promise.resolve(m.media_content_id === 'albums'
+  await ev(`(() => { const real = HP.ha.call.bind(HP.ha); HP.ha.call = m => m.type === 'media_player/search_media' ? (window.__asked = m, Promise.resolve({result: [{title: 'Found Song', can_expand: false, can_play: true, media_content_id: 'f1', media_content_type: 'music', thumbnail: null}]}))
+    : m.type !== 'media_player/browse_media' ? real(m) : Promise.resolve(m.media_content_id === 'albums'
     ? {title: 'Albums', children: [{title: 'Night Drive', can_expand: true, can_play: true, media_content_id: 'al1', media_content_type: 'album', thumbnail: '/api/media_player_proxy/x.jpg'}]}
-    : {title: 'Media', children: [{title: 'Albums', can_expand: true, can_play: false, media_content_id: 'albums', media_content_type: 'albums', thumbnail: null}, {title: 'Radio One', can_expand: false, can_play: true, media_content_id: 'r1', media_content_type: 'music', thumbnail: null}]}); })()`);
+    : {title: 'Media', can_search: true, media_content_id: 'root', media_content_type: 'library', children: [{title: 'Albums', can_expand: true, can_play: false, media_content_id: 'albums', media_content_type: 'albums', thumbnail: null}, {title: 'Radio One', can_expand: false, can_play: true, media_content_id: 'r1', media_content_type: 'music', thumbnail: null}]}); })()`);
   await set('media_player.fake_hifi', 'playing', {friendly_name: 'Fake Hifi', supported_features: 1 | 16 | 32 | 4 | 16384 | 131072, media_title: 'Night Drive', media_artist: 'The Made Ups', entity_picture: '/api/media_player_proxy/now.jpg', volume_level: 0.4});
+  await sleep(700);  // the picture's link is signed by Home Assistant first
   const mt = await js(`(() => { const el = document.querySelector('#grid .t-media'); return {title: el.querySelector('.n').textContent, line: el.querySelector('.l').textContent, lit: el.classList.contains('on'),
     art: /\\/api\\/media_player_proxy\\/now\\.jpg/.test(el.querySelector('.mart').style.backgroundImage), btns: [...el.querySelectorAll('.mbtn [data-b]')].map(b => b.dataset.b)}; })()`);
   await calls(); await tap('#grid .t-media [data-b=next]'); const mNext = await calls(); await tap('#grid .t-media [data-b=play]'); const mPlay = await calls();
   await tap('#grid .t-media .mart'); await sleep(300);
   const b1 = await js(`{items: [...document.querySelectorAll('#pop .bi .bnm')].map(n => n.textContent), back: !document.querySelector('#pop .ph .rb').hidden}`);
-  await tap('#pop .bi'); await sleep(300);
+  const s1 = await ev(`!document.querySelector('#pop .bsearch').hidden`);
+  await tap('#pop .bi'); await sleep(700);
+  const s2 = await ev(`!document.querySelector('#pop .bsearch').hidden`);
   const b2 = await js(`{items: [...document.querySelectorAll('#pop .bi .bnm')].map(n => n.textContent), trail: document.querySelector('#pop .ps').textContent, play: !!document.querySelector('#pop .bplay'), pic: /x\\.jpg/.test(document.querySelector('#pop .bth').style.backgroundImage)}`);
   await tap('#pop .ph .rb'); await sleep(200); const b3 = await js(`[...document.querySelectorAll('#pop .bi .bnm')].map(n => n.textContent)`);
+  await ev(`document.querySelector('#pop .bsearch .tin').value = 'found'`); await tap('#pop .bsearch .mb'); await sleep(300);
+  const s3 = await js(`{items: [...document.querySelectorAll('#pop .bi .bnm')].map(n => n.textContent), trail: document.querySelector('#pop .ps').textContent, field: !document.querySelector('#pop .bsearch').hidden, asked: [window.__asked.search_query, window.__asked.media_content_id]}`);
+  await tap('#pop .ph .rb'); await sleep(200);
   await calls(); await tap('#pop .bi:last-child'); const bPlay = await calls(); const bClosed = !(await popOpen());
   await tap('#grid .t-media .mtx'); await sleep(200); const mMore = await js(`{open: !!HP.pop.cur, vol: !!document.querySelector('#pop .vbar')}`); await tap('#pop .px');
-  ok('player: picture, title and buttons on its tile; the picture opens its library, the words its controls',
+  ok('player: picture, title and buttons on its tile; the picture opens its library, with search only where Home Assistant offers it; the words open its controls',
     mt.title === 'Night Drive' && mt.line === 'The Made Ups \u00b7 Fake Hifi' && mt.lit && mt.art && same(mt.btns, ['prev', 'play', 'next'])
     && same(mNext, [['media_player', 'media_next_track', 'media_player.fake_hifi', {}]]) && same(mPlay, [['media_player', 'media_play_pause', 'media_player.fake_hifi', {}]])
-    && same(b1, {items: ['Albums', 'Radio One'], back: false}) && same(b2, {items: ['Night Drive'], trail: 'Media \u203a Albums', play: true, pic: true}) && same(b3, ['Albums', 'Radio One'])
-    && same(bPlay, [['media_player', 'play_media', 'media_player.fake_hifi', {media_content_id: 'r1', media_content_type: 'music'}]]) && bClosed && mMore.open && mMore.vol, {mt, mNext, mPlay, b1, b2, b3, bPlay, bClosed, mMore});
+    && same(b1, {items: ['Albums', 'Radio One'], back: false}) && same(b2, {items: ['Night Drive'], trail: 'Media \u203a Albums', play: true, pic: true}) && same(b3, ['Albums', 'Radio One']) && s1 && !s2 && same(s3, {items: ['Found Song'], trail: 'Media \u203a found', field: false, asked: ['found', 'root']})
+    && same(bPlay, [['media_player', 'play_media', 'media_player.fake_hifi', {media_content_id: 'r1', media_content_type: 'music'}]]) && bClosed && mMore.open && mMore.vol, {mt, mNext, mPlay, b1, b2, b3, s1, s2, s3, bPlay, bClosed, mMore});
 
   // ---- the panel's switch: no questions
   await api('PUT', 'designs/' + id, {name: 'Guard test', design: design(false)}); await sleep(6000);

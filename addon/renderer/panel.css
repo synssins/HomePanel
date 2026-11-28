@@ -131,8 +131,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
 .dd.open .ddl { display: block; }
 .ddl div { display: flex; align-items: center; padding: 11px 14px; border-radius: 18px; }
 .dn { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fm { flex: none; display: flex; margin-left: 8px; opacity: .8; }
-.fm svg { width: 17px; height: 17px; margin-left: 4px; fill: currentColor; }
 .ddl .cur { background: rgba(255,255,255,.22); }
 /* Showing tiles. A value: the state large, its name under it. A gauge: an arc over the value. A chart: name and
    value on top, the line below, with the highest and lowest at its right edge. All drawn in the tile's own text colour. */
@@ -226,6 +224,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
 .tall .mmain { flex: none; margin: calc(var(--u) * .5) 0 0; }
 .tall .mtx { margin-bottom: calc(var(--u) * .4); }
 /* What a player can play: the popup, wide, as a grid of pictures. Folders open; things play. */
+.bsearch { flex: none; display: flex; margin-bottom: 16px; }
+.bsearch[hidden] { display: none; }
+.bsearch .tin { flex: 1; margin: 0 12px 0 0; }
+.bsearch .mb { padding: 13px 24px; }
 #pop .box.wide { width: 900px; max-height: 88%; display: flex; flex-direction: column; }
 .pb.bgrid { flex: 1; min-height: 220px; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 16px; align-items: start; overflow-y: auto; padding-right: 4px; touch-action: pan-y; }
 .bi { position: relative; }

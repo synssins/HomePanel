@@ -521,13 +521,6 @@ HP.textBox = (title, value, type, ok) => {
   };
 };
 
-/** Marks for a light's effects: {effect: 's' sound, 'g' grid, or both}. Only a WLED light has any; the Workshop asks the strip. */
-HP.fxmeta = e => {
-  const c = HP.fxmeta.got || (HP.fxmeta.got = {});
-  if (!c[e]) c[e] = !HP.server || !HP.key ? Promise.resolve({}) : fetch(HP.server + '/api/fxmeta?entity=' + encodeURIComponent(e), {headers: {Authorization: 'Bearer ' + HP.key}}).then(r => r.ok ? r.json() : {}).catch(() => ({}));
-  return c[e];
-};
-
 // ---------- scenes ----------
 /** Home Assistant keeps no "scene in use": a scene only knows when it was last set. So a scene counts as in use
  *  while the lights are as it sets them, and stops the moment one of them is changed. What each scene sets comes
